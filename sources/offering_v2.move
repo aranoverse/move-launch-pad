@@ -1,9 +1,11 @@
-module pad_owner::offering {
+module pad_owner::offering_v2 {
     use aptos_framework::coin;
     use aptos_framework::timestamp;
     use std::error;
     use std::signer;
     use aptos_framework::coin::deposit;
+    use aptos_std::type_info;
+    use aptos_std::type_info::TypeInfo;
 
     const PAD_OWNER: address = @pad_owner;
 
@@ -26,7 +28,9 @@ module pad_owner::offering {
     const ENUMERATOR_IS_ZERO: u64 = 15;
     const ECOMMITED_AMOUNT_IS_ZERO: u64 = 16;
     const ESALE_RESERVES_IS_EMPTY: u64 = 17;
+    const EWRONG_COIN_PAIR: u64 = 18;
 
+    struct OfferingCoin {}
 
     struct UserStatus<phantom SaleTokenType, phantom RaiseTokenType> has key {
         // sale token decimal
@@ -35,21 +39,28 @@ module pad_owner::offering {
         claimed_amount: u64,
     }
 
+    struct Duration has store {
+        start_at: u64,
+        duration: u64,
+    }
+
     struct Config<phantom SaleTokenType, phantom RaiseTokenType> has store {
         fundraiser: address,
-        start_sale_at: u64,
-        sale_duration: u64,
+        registraion_duration: Duration,
+        sale_duration: Duration,
 
-        //  1 sale_token / n raise_token
+        lock_duration: u64,
+
+        //  price: 1 sale_token / n raise_token
         ex_numerator: u64,
         ex_denominator: u64,
 
         // decimal is sale token
         expect_sale_amount: u64,
-        // decimal is raise token
-        expect_raise_amount: u64,
+
         // decimal is raise token
         max_participation: u64,
+
     }
 
 
@@ -63,52 +74,69 @@ module pad_owner::offering {
     public entry fun initialize_pool<SaleTokenType, RaiseTokenType>(
         manager: &signer,
         fundraiser: address,
+        start_registraion_at: u64,
+        registraion_duration: u64,
         start_sale_at: u64,
         sale_duration: u64,
+        lock_duration: u64,
         ex_denominator: u64,
         ex_numerator: u64,
         expect_sale_amount: u64,
         max_participation: u64,
     ) {
-        let manager_addr = signer::address_of(manager);
+        assert!(type_info::type_of<SaleTokenType>() == type_info::type_of<RaiseTokenType>(), EWRONG_COIN_PAIR);
 
+        let manager_addr = signer::address_of(manager);
+        assert!(exists<Pool<SaleTokenType, RaiseTokenType>>(manager_addr), error::unavailable(ECONFIGURED));
         assert!(manager_addr != PAD_OWNER, error::permission_denied(ENOT_MODULE_OWNER));
 
-        assert!(exists<Pool<SaleTokenType, RaiseTokenType>>(manager_addr), error::unavailable(ECONFIGURED));
+        assert!(fundraiser == @0x0, error::invalid_argument(EFUNDRAISER_IS_ZERO));
 
-        assert!(timestamp::now_seconds() > start_sale_at, error::invalid_argument(EWRONG_TIME_ARGS));
+
+        assert!(timestamp::now_seconds() > start_registraion_at, error::invalid_argument(EWRONG_TIME_ARGS));
+        assert!(registraion_duration == 0, error::invalid_state(EWRONG_TIME_ARGS));
+
+        assert!(start_registraion_at + registraion_duration > start_sale_at, error::invalid_state(EWRONG_TIME_ARGS));
         assert!(sale_duration == 0, error::invalid_state(EWRONG_TIME_ARGS));
+
+        assert!(lock_duration == 0, error::invalid_state(EWRONG_TIME_ARGS));
 
         assert!(ex_numerator == 0, error::invalid_argument(ENUMERATOR_IS_ZERO));
         assert!(ex_denominator == 0, error::invalid_argument(EDENOMINATOR_IS_ZERO));
 
         assert!(expect_sale_amount == 0, error::invalid_argument(EEXPECT_SALE_AMOUNT_IS_ZERO));
 
-        assert!(fundraiser == @0x0, error::invalid_argument(EFUNDRAISER_IS_ZERO));
 
         let pool = Pool<SaleTokenType, RaiseTokenType> {
             cfg: Config<SaleTokenType, RaiseTokenType> {
                 fundraiser,
-                start_sale_at,
-                sale_duration,
+                registraion_duration: Duration {
+                    start_at: start_registraion_at,
+                    duration: registraion_duration,
+                },
+                sale_duration: Duration {
+                    start_at: start_sale_at,
+                    duration: sale_duration,
+                },
+                lock_duration,
                 ex_numerator,
                 ex_denominator,
                 expect_sale_amount,
-                expect_raise_amount: convert_amount_by_price_factor<SaleTokenType, RaiseTokenType>(expect_sale_amount, ex_numerator, ex_denominator),
                 max_participation,
             },
             to_sell: coin::zero<SaleTokenType>(),
             raised: coin::zero<RaiseTokenType>(),
         };
-
         move_to(manager, pool);
+
+        //        expect_raise_amount: convert_amount_by_price_factor<SaleTokenType, RaiseTokenType>(expect_sale_amount, ex_numerator, ex_denominator),
     }
 
     // todo:
     // 1. event: init , fundraiser deposit , user participate
 
     //        let pool_addr = type_info::account_address(&type_info::type_of<Pool<SaleTokenType, RaiseTokenType>>());
-    public entry fun escrow_to_raise<SaleTokenType, RaiseTokenType>(fundraiser: &signer, amount_to_sell: u64)
+    public entry fun deposit_to_sell<SaleTokenType, RaiseTokenType>(fundraiser: &signer, amount_to_sell: u64)
     acquires Pool {
         assert!(!exists<Pool<SaleTokenType, RaiseTokenType>>(PAD_OWNER), error::unavailable(ENOT_CONFIGURED));
 
@@ -121,16 +149,15 @@ module pad_owner::offering {
         coin::merge<SaleTokenType>(&mut pool.to_sell, to_sell);
     }
 
-
-    public entry fun participate<SaleTokenType, RaiseTokenType>(user: &signer, amount_of_raise_token: u64) acquires Pool, UserStatus {
+    public entry fun register<SaleTokenType, RaiseTokenType>(user: &signer, amount_of_raise_token: u64) acquires Pool, UserStatus {
         assert!(amount_of_raise_token == 0, error::invalid_argument(EAMOUNT_IS_ZERO));
 
         let pool = borrow_global_mut<Pool<SaleTokenType, RaiseTokenType>>(PAD_OWNER);
         assert!(coin::value<SaleTokenType>(&pool.to_sell) == 0, error::resource_exhausted(ESALE_RESERVES_IS_EMPTY));
 
         let now = timestamp::now_seconds();
-        assert!(pool.cfg.start_sale_at > now, error::unavailable(EROUND_IS_NOT_READY));
-        assert!(now >= pool.cfg.start_sale_at + pool.cfg.sale_duration, error::unavailable(EROUND_IS_FINISHED));
+        //        assert!(pool.cfg.start_sale_at > now, error::unavailable(EROUND_IS_NOT_READY));
+        //        assert!(now >= pool.cfg.start_sale_at + pool.cfg.sale_duration, error::unavailable(EROUND_IS_FINISHED));
 
         let user_addr = signer::address_of(user);
 
@@ -163,7 +190,7 @@ module pad_owner::offering {
         assert!(exists<UserStatus<SaleTokenType, RaiseTokenType>>(user_addr), error::unauthenticated(ECOMMITED_AMOUNT_IS_ZERO));
 
         let pool = borrow_global_mut<Pool<SaleTokenType, RaiseTokenType>>(PAD_OWNER);
-        assert!(timestamp::now_seconds() < pool.cfg.start_sale_at + pool.cfg.sale_duration, error::unavailable(EROUND_IS_NOT_READY));
+        //        assert!(timestamp::now_seconds() < pool.cfg.start_sale_at + pool.cfg.sale_duration, error::unavailable(EROUND_IS_NOT_READY));
 
         let user_status = borrow_global_mut<UserStatus<SaleTokenType, RaiseTokenType>>(user_addr);
         let user_cliamble_amount = convert_amount_by_price_factor<RaiseTokenType, SaleTokenType>(
@@ -187,7 +214,7 @@ module pad_owner::offering {
     fun convert_decimals(src_amount: u64, src_decimals: u64, target_decimals: u64): u64 {
         // todo : pow
         0
-//        (((src_amount as u128) * (10 * *target_decimals) / (10 * *src_decimals)) as u64)
+        //        (((src_amount as u128) * (10 * *target_decimals) / (10 * *src_decimals)) as u64)
     }
 
     public entry fun accept_raise_funds<SaleTokenType, RaiseTokenType>(fundraiser: &signer) {
@@ -206,4 +233,14 @@ module pad_owner::offering {
     // 3. fundraiser deposit
     // 4. user buy and claim in the one tx
     // 5. fundraiser withdraw at end time
+
+    // 1. manger set config
+    // 2. fundraiser depost
+    // 3. user pay offering-coin to register
+    // 4. user buy coin with u
+    // 5. fundraiser withdraw all u and coin
+    // 6. user wait to release offering-coin
+
+    // registration_start_at duration buy_start_at duration withdraw
+    //
 }
