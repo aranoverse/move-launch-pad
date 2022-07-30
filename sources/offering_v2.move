@@ -7,6 +7,8 @@ module pad_owner::offering_v2 {
     use aptos_framework::coin::{Self};
 
     use launch_pad::math::power_decimals;
+    use aptos_std::event::{EventHandle, emit_event};
+    use aptos_std::event;
 
     const PAD_OWNER: address = @pad_owner;
 
@@ -61,6 +63,7 @@ module pad_owner::offering_v2 {
         expect_sale_amount: u64,
 
         // ticket amount ratio
+        // todo: maybe use this ratio to limit partition of user ,it seems to be not necessrary
         max_participation_numerator: u64,
         max_participation_denominator: u64,
 
@@ -72,6 +75,13 @@ module pad_owner::offering_v2 {
         tickets: coin::Coin<OfferingCoin>,
         to_sell: coin::Coin<SaleCoinType>,
         raised: coin::Coin<RaiseCoinType>,
+        initialize_pool_events: EventHandle<Initialize_Pool_Event>
+    }
+
+    struct Initialize_Pool_Event has store, drop {
+        fundraiser: address,
+        // decimal is sale coin
+        expect_sale_amount: u64,
     }
 
     public entry fun initialize_pool<SaleCoinType, RaiseCoinType>(
@@ -134,8 +144,13 @@ module pad_owner::offering_v2 {
             tickets: coin::zero<OfferingCoin>(),
             to_sell: coin::zero<SaleCoinType>(),
             raised: coin::zero<RaiseCoinType>(),
+            initialize_pool_events: event::new_event_handle<Initialize_Pool_Event>(manager)
         };
 
+        emit_event(
+            &mut pool.initialize_pool_events,
+            Initialize_Pool_Event { fundraiser, expect_sale_amount }
+        );
         move_to(manager, pool);
     }
     // todo:
