@@ -338,12 +338,11 @@ module pad_owner::offering_v2 {
     }
 
 
-    // todo:
     // 1. manger set config
     // 2. fundraiser depost
     // 3. user pay offering-coin to register
     // 4. user buy coin with u
     // 5. fundraiser withdraw all u and coin
     // 6. user wait to release offering-coin
-    // 7. deduct part of ticket amount , send nft
+    // todo: 7. deduct part of ticket amount , send nft
 }
