@@ -203,13 +203,12 @@ module launch_pad::offering_v2 {
             DepositToSellEvent { fundraiser: address_of(fundraiser), sale_amount: pool.cfg.expect_sale_amount }
         );
 
-
         // in case that fundraiser doesn't deposit before registration
         let now = timestamp::now_seconds();
         if (now > pool.cfg.registraion_duration.start_at) {
             pool.cfg.sale_duration.start_at = now - pool.cfg.registraion_duration.start_at + pool.cfg.sale_duration.start_at;
             pool.cfg.registraion_duration.start_at = now;
-        }
+        };
     }
 
     public entry fun register<SaleCoinType, RaiseCoinType>(user: &signer, ticket: u64)
@@ -343,7 +342,7 @@ module launch_pad::offering_v2 {
                 expect_sale_amount: pool.cfg.expect_sale_amount,
                 sale_refunds_amount,
             }
-        )
+        );
     }
 
 
