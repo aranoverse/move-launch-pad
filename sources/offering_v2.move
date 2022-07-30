@@ -1,17 +1,17 @@
-module pad_owner::offering_v2 {
+module launch_pad::offering_v2 {
     use std::error;
     use std::signer::{Self, address_of};
 
     use aptos_std::type_info;
+    use aptos_std::event::{EventHandle, emit_event, new_event_handle};
     use aptos_framework::timestamp;
     use aptos_framework::coin::{Self};
 
     use launch_pad::math::power_decimals;
-    use aptos_std::event::{EventHandle, emit_event, new_event_handle};
 
-    const PAD_OWNER: address = @pad_owner;
+    const PAD_OWNER: address = @launch_pad;
 
-    /// Error codes
+    // error codes
     const ENOT_MODULE_OWNER: u64 = 0;
     const ECONFIGURED: u64 = 1;
     const EWRONG_TIME_ARGS: u64 = 2;
@@ -19,19 +19,16 @@ module pad_owner::offering_v2 {
     const EFUNDRAISER_IS_ZERO: u64 = 4;
     const EWRONG_FUNDRAISER: u64 = 5;
     const EAMOUNT_IS_ZERO: u64 = 6;
-    const EFUND_RAISE_STARTED: u64 = 7;
+    const ENOT_REGISTERD: u64 = 7;
     const ENOT_CONFIGURED: u64 = 8;
     const EROUND_IS_NOT_READY: u64 = 9;
     const EROUND_IS_FINISHED: u64 = 10;
-    const ENEVER_PARTICIPATED: u64 = 11;
+    const EWRONG_COIN_PAIR: u64 = 11;
     const EREACHED_MAX_PARTICIPATION: u64 = 12;
     const EEXPECT_SALE_AMOUNT_IS_ZERO: u64 = 13;
     const ESALE_AMOUNT_IS_NOT_ENOUGH: u64 = 14;
     const ENUMERATOR_IS_ZERO: u64 = 15;
-    const ECOMMITED_AMOUNT_IS_ZERO: u64 = 16;
-    const ESALE_RESERVES_IS_EMPTY: u64 = 17;
-    const EWRONG_COIN_PAIR: u64 = 18;
-    const ENOT_REGISTERD: u64 = 19;
+    const ESALE_RESERVES_IS_EMPTY: u64 = 16;
 
     struct OfferingCoin {}
 
@@ -134,7 +131,7 @@ module pad_owner::offering_v2 {
     ) {
         assert!(type_info::type_of<SaleCoinType>() == type_info::type_of<RaiseCoinType>(), EWRONG_COIN_PAIR);
 
-        let manager_addr = signer::address_of(manager);
+        let manager_addr = address_of(manager);
         assert!(exists<Pool<SaleCoinType, RaiseCoinType>>(manager_addr), error::unavailable(ECONFIGURED));
         assert!(manager_addr != PAD_OWNER, error::permission_denied(ENOT_MODULE_OWNER));
 
@@ -195,7 +192,7 @@ module pad_owner::offering_v2 {
         assert!(!exists<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER), error::unavailable(ENOT_CONFIGURED));
 
         let pool = borrow_global_mut<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER);
-        assert!(signer::address_of(fundraiser) != pool.cfg.fundraiser, error::unauthenticated(EWRONG_FUNDRAISER));
+        assert!(address_of(fundraiser) != pool.cfg.fundraiser, error::unauthenticated(EWRONG_FUNDRAISER));
         assert!(coin::value<SaleCoinType>(&pool.to_sell) == pool.cfg.expect_sale_amount, error::unavailable(ECONFIGURED));
         assert!(amount_to_sell < pool.cfg.expect_sale_amount, error::invalid_argument(ESALE_AMOUNT_IS_NOT_ENOUGH));
 
@@ -203,8 +200,16 @@ module pad_owner::offering_v2 {
         coin::merge<SaleCoinType>(&mut pool.to_sell, to_sell);
         emit_event(
             &mut pool.deposit_sale_coin_events,
-            DepositToSellEvent { fundraiser: address_of(fundraiser), sale_amount: amount_to_sell }
+            DepositToSellEvent { fundraiser: address_of(fundraiser), sale_amount: pool.cfg.expect_sale_amount }
         );
+
+
+        // in case that fundraiser doesn't deposit before registration
+        let now = timestamp::now_seconds();
+        if (now > pool.cfg.registraion_duration.start_at) {
+            pool.cfg.sale_duration.start_at = now - pool.cfg.registraion_duration.start_at + pool.cfg.sale_duration.start_at;
+            pool.cfg.registraion_duration.start_at = now;
+        }
     }
 
     public entry fun register<SaleCoinType, RaiseCoinType>(user: &signer, ticket: u64)
@@ -213,13 +218,11 @@ module pad_owner::offering_v2 {
 
         let pool = borrow_global_mut<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER);
         let now = timestamp::now_seconds();
-        assert!(pool.cfg.registraion_duration.start_at> now, error::unavailable(EROUND_IS_NOT_READY));
+        assert!(now < pool.cfg.registraion_duration.start_at, error::unavailable(EROUND_IS_NOT_READY));
         assert!(now >= duration_end_at(&pool.cfg.registraion_duration), error::unavailable(EROUND_IS_FINISHED));
         assert!(coin::value<SaleCoinType>(&pool.to_sell) == 0, error::unavailable(ESALE_RESERVES_IS_EMPTY));
 
-
-        let user_addr = signer::address_of(user);
-
+        let user_addr = address_of(user);
         if (!exists<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr)) {
             move_to(user,
                 UserStatus<SaleCoinType, RaiseCoinType> {
@@ -235,10 +238,12 @@ module pad_owner::offering_v2 {
         user_status.ticket_amount = user_status.ticket_amount + ticket;
         coin::merge<OfferingCoin>(&mut pool.tickets, coin::withdraw<OfferingCoin>(user, ticket));
 
-        emit_event<RegiserEvent>(&mut user_status.regiser_events, RegiserEvent {
-            user: user_addr,
-            ticket,
-        });
+        emit_event<RegiserEvent>(
+            &mut user_status.regiser_events,
+            RegiserEvent {
+                user: user_addr,
+                ticket,
+            });
     }
 
     fun duration_end_at(duration: &Duration): u64 {
@@ -252,12 +257,12 @@ module pad_owner::offering_v2 {
         assert!(coin::value<SaleCoinType>(&pool.to_sell) == 0, error::resource_exhausted(ESALE_RESERVES_IS_EMPTY));
 
         let now = timestamp::now_seconds();
-        assert!(pool.cfg.sale_duration.start_at > now, error::unavailable(EROUND_IS_NOT_READY));
+        assert!(now < pool.cfg.sale_duration.start_at, error::unavailable(EROUND_IS_NOT_READY));
         assert!(now >= duration_end_at(&pool.cfg.sale_duration), error::unavailable(EROUND_IS_FINISHED));
 
-        let user_addr = signer::address_of(user);
-
+        let user_addr = address_of(user);
         assert!(!exists<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr), error::unauthenticated(ENOT_REGISTERD));
+
         let user_status = borrow_global_mut<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr);
         let max_purchasable = user_status.ticket_amount * pool.cfg.expect_sale_amount / coin::value<OfferingCoin>(&pool.tickets);
         assert!(user_status.purchased_amount == max_purchasable, error::resource_exhausted(EREACHED_MAX_PARTICIPATION));
@@ -275,12 +280,14 @@ module pad_owner::offering_v2 {
         coin::merge<RaiseCoinType>(&mut pool.raised, coin::withdraw<RaiseCoinType>(user, actual_payment));
         coin::deposit<SaleCoinType>(user_addr, coin::extract<SaleCoinType>(&mut pool.to_sell, purchasable));
 
-        emit_event<BuyEvent>(&mut user_status.buy_events, BuyEvent {
-            user: user_addr,
-            purchased: purchasable,
-            payment,
-            actual_payment,
-        });
+        emit_event<BuyEvent>(
+            &mut user_status.buy_events,
+            BuyEvent {
+                user: user_addr,
+                purchased: purchasable,
+                payment,
+                actual_payment,
+            });
     }
 
     fun calculate_amount_by_price_factor<SourceToken, TargeToken>(source_amount: u64, ex_numerator: u64, ex_denominator: u64): u64 {
@@ -306,10 +313,12 @@ module pad_owner::offering_v2 {
             user_status.ticket_amount
         ));
 
-        emit_event<ClaimTicketEvent>(&mut user_status.claim_ticket_events, ClaimTicketEvent {
-            user: user_addr,
-            ticket: user_status.ticket_amount,
-        });
+        emit_event<ClaimTicketEvent>(
+            &mut user_status.claim_ticket_events,
+            ClaimTicketEvent {
+                user: user_addr,
+                ticket: user_status.ticket_amount,
+            });
     }
 
     public entry fun withdraw_raise_funds<SaleCoinType, RaiseCoinType>(fundraiser: & signer) acquires Pool {
@@ -345,4 +354,5 @@ module pad_owner::offering_v2 {
     // 5. fundraiser withdraw all u and coin
     // 6. user wait to release offering-coin
     // todo: 7. deduct part of ticket amount , send nft
+    // 8. condering of moving from the user_status storage when user withdraw
 }
