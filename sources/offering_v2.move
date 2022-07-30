@@ -1,17 +1,17 @@
-module pad_owner::offering_v2 {
+module launch_pad::offering_v2 {
     use std::error;
     use std::signer::{Self, address_of};
 
     use aptos_std::type_info;
+    use aptos_std::event::{EventHandle, emit_event, new_event_handle};
     use aptos_framework::timestamp;
     use aptos_framework::coin::{Self};
 
     use launch_pad::math::power_decimals;
-    use aptos_std::event::{EventHandle, emit_event, new_event_handle};
 
-    const PAD_OWNER: address = @pad_owner;
+    const PAD_OWNER: address = @launch_pad;
 
-    /// Error codes
+    /// error codes
     const ENOT_MODULE_OWNER: u64 = 0;
     const ECONFIGURED: u64 = 1;
     const EWRONG_TIME_ARGS: u64 = 2;
