@@ -268,10 +268,8 @@ module launch_pad::offering_v2 {
         assert!(user_status.purchased_amount < max_purchasable, error::resource_exhausted(EREACHED_MAX_PARTICIPATION));
 
         let purchasable = calculate_amount_by_price_factor<RaiseCoinType, SaleCoinType>(payment, pool.cfg.ex_numerator, pool.cfg.ex_denominator) ;
-        purchasable = if (purchasable + user_status.purchased_amount < max_purchasable) {
-            purchasable
-        }else {
-            max_purchasable - user_status.purchased_amount
+        if (purchasable + user_status.purchased_amount > max_purchasable) {
+            purchasable = max_purchasable - user_status.purchased_amount
         };
 
         let actual_payment = payment - calculate_amount_by_price_factor<SaleCoinType, RaiseCoinType>(purchasable, pool.cfg.ex_denominator, pool.cfg.ex_numerator);
