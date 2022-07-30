@@ -75,13 +75,20 @@ module pad_owner::offering_v2 {
         tickets: coin::Coin<OfferingCoin>,
         to_sell: coin::Coin<SaleCoinType>,
         raised: coin::Coin<RaiseCoinType>,
-        initialize_pool_events: EventHandle<Initialize_Pool_Event>
+        initialize_pool_events: EventHandle<InitializePoolEvent>,
+        deposit_sale_coin_events: EventHandle<DepositToSellEvent>,
     }
 
-    struct Initialize_Pool_Event has store, drop {
+    struct InitializePoolEvent has store, drop {
         fundraiser: address,
         // decimal is sale coin
         expect_sale_amount: u64,
+    }
+
+    struct DepositToSellEvent has store, drop {
+        fundraiser: address,
+        // decimal is sale coin
+        sale_amount: u64,
     }
 
     public entry fun initialize_pool<SaleCoinType, RaiseCoinType>(
@@ -144,12 +151,13 @@ module pad_owner::offering_v2 {
             tickets: coin::zero<OfferingCoin>(),
             to_sell: coin::zero<SaleCoinType>(),
             raised: coin::zero<RaiseCoinType>(),
-            initialize_pool_events: event::new_event_handle<Initialize_Pool_Event>(manager)
+            initialize_pool_events: event::new_event_handle<InitializePoolEvent>(manager),
+            deposit_sale_coin_events: event::new_event_handle<DepositToSellEvent>(manager)
         };
 
         emit_event(
             &mut pool.initialize_pool_events,
-            Initialize_Pool_Event { fundraiser, expect_sale_amount }
+            InitializePoolEvent { fundraiser, expect_sale_amount }
         );
         move_to(manager, pool);
     }
@@ -167,6 +175,10 @@ module pad_owner::offering_v2 {
 
         let to_sell = coin::withdraw<SaleCoinType>(fundraiser, pool.cfg.expect_sale_amount);
         coin::merge<SaleCoinType>(&mut pool.to_sell, to_sell);
+        emit_event(
+            &mut pool.deposit_sale_coin_events,
+            DepositToSellEvent { fundraiser: address_of(fundraiser), sale_amount: amount_to_sell }
+        );
     }
 
     public entry fun register<SaleCoinType, RaiseCoinType>(user: &signer, ticket: u64)
