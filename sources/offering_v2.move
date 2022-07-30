@@ -96,6 +96,7 @@ module pad_owner::offering_v2 {
         raised: coin::Coin<RaiseCoinType>,
         initialize_pool_events: EventHandle<InitializePoolEvent>,
         deposit_sale_coin_events: EventHandle<DepositToSellEvent>,
+        withdraw_raise_funds_events: EventHandle<WithdrawRaiseFundsEvent>,
     }
 
     struct InitializePoolEvent has store, drop {
@@ -110,6 +111,12 @@ module pad_owner::offering_v2 {
         sale_amount: u64,
     }
 
+    struct WithdrawRaiseFundsEvent has store, drop {
+        fundraiser: address,
+        raised_amount: u64,
+        expect_sale_amount: u64,
+        sale_refunds_amount: u64,
+    }
 
     public entry fun initialize_pool<SaleCoinType, RaiseCoinType>(
         manager: &signer,
@@ -171,8 +178,9 @@ module pad_owner::offering_v2 {
             tickets: coin::zero<OfferingCoin>(),
             to_sell: coin::zero<SaleCoinType>(),
             raised: coin::zero<RaiseCoinType>(),
-            initialize_pool_events: new_event_handle(manager),
-            deposit_sale_coin_events: new_event_handle(manager)
+            initialize_pool_events: new_event_handle<InitializePoolEvent>(manager),
+            deposit_sale_coin_events: new_event_handle<DepositToSellEvent>(manager),
+            withdraw_raise_funds_events: new_event_handle<WithdrawRaiseFundsEvent>(manager),
         };
 
         emit_event(
@@ -312,9 +320,21 @@ module pad_owner::offering_v2 {
         assert!(pool.cfg.fundraiser != fundraiser_addr, error::unauthenticated(EWRONG_FUNDRAISER));
         assert!(timestamp::now_seconds() < duration_end_at(&pool.cfg.sale_duration), error::unavailable(EROUND_IS_NOT_READY));
 
+        let sale_refunds_amount = coin::value<SaleCoinType>(&pool.to_sell);
+        let raised_amount = coin::value<RaiseCoinType>(&pool.raised);
+
         coin::deposit<SaleCoinType>(fundraiser_addr, coin::extract_all<SaleCoinType>(&mut pool.to_sell));
         coin::deposit<RaiseCoinType>(fundraiser_addr, coin::extract_all<RaiseCoinType>(&mut pool.raised));
-        // todo: emit
+
+        emit_event(
+            &mut pool.withdraw_raise_funds_events,
+            WithdrawRaiseFundsEvent {
+                fundraiser: fundraiser_addr,
+                raised_amount,
+                expect_sale_amount: pool.cfg.expect_sale_amount,
+                sale_refunds_amount,
+            }
+        )
     }
 
 
