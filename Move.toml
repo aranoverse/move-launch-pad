@@ -8,5 +8,4 @@ pad_owner = "0x2"
 offering_coin = "0x3"
 
 [dependencies]
-AptosFramework = { local = "../aptos-core/aptos-move/framework/aptos-framework" }
-#AptosFramework2 = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "main" }
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "main" }
