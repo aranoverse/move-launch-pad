@@ -7,8 +7,7 @@ module pad_owner::offering_v2 {
     use aptos_framework::coin::{Self};
 
     use launch_pad::math::power_decimals;
-    use aptos_std::event::{EventHandle, emit_event};
-    use aptos_std::event;
+    use aptos_std::event::{EventHandle, emit_event, new_event_handle};
 
     const PAD_OWNER: address = @pad_owner;
 
@@ -41,6 +40,26 @@ module pad_owner::offering_v2 {
         ticket_amount: u64,
         // sale coin decimal
         purchased_amount: u64,
+        regiser_events: EventHandle<RegiserEvent>,
+        buy_events: EventHandle<BuyEvent>,
+        claim_ticket_events: EventHandle<ClaimTicketEvent>,
+    }
+
+    struct RegiserEvent has store, drop {
+        user: address,
+        ticket: u64,
+    }
+
+    struct BuyEvent has store, drop {
+        user: address,
+        purchased: u64,
+        payment: u64,
+        actual_payment: u64
+    }
+
+    struct ClaimTicketEvent has store, drop {
+        user: address,
+        ticket: u64,
     }
 
     struct Duration has store {
@@ -90,6 +109,7 @@ module pad_owner::offering_v2 {
         // decimal is sale coin
         sale_amount: u64,
     }
+
 
     public entry fun initialize_pool<SaleCoinType, RaiseCoinType>(
         manager: &signer,
@@ -151,8 +171,8 @@ module pad_owner::offering_v2 {
             tickets: coin::zero<OfferingCoin>(),
             to_sell: coin::zero<SaleCoinType>(),
             raised: coin::zero<RaiseCoinType>(),
-            initialize_pool_events: event::new_event_handle<InitializePoolEvent>(manager),
-            deposit_sale_coin_events: event::new_event_handle<DepositToSellEvent>(manager)
+            initialize_pool_events: new_event_handle(manager),
+            deposit_sale_coin_events: new_event_handle(manager)
         };
 
         emit_event(
@@ -161,8 +181,6 @@ module pad_owner::offering_v2 {
         );
         move_to(manager, pool);
     }
-    // todo:
-    // 1. event: init , fundraiser deposit , user participate
 
     public entry fun deposit_to_sell<SaleCoinType, RaiseCoinType>(fundraiser: &signer, amount_to_sell: u64)
     acquires Pool {
@@ -199,13 +217,20 @@ module pad_owner::offering_v2 {
                 UserStatus<SaleCoinType, RaiseCoinType> {
                     ticket_amount: 0,
                     purchased_amount: 0,
+                    regiser_events: new_event_handle<RegiserEvent>(user),
+                    buy_events: new_event_handle<BuyEvent>(user),
+                    claim_ticket_events: new_event_handle<ClaimTicketEvent>(user),
                 });
         };
 
         let user_status = borrow_global_mut<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr);
         user_status.ticket_amount = user_status.ticket_amount + ticket;
         coin::merge<OfferingCoin>(&mut pool.tickets, coin::withdraw<OfferingCoin>(user, ticket));
-        // todo: emit
+
+        emit_event<RegiserEvent>(&mut user_status.regiser_events, RegiserEvent {
+            user: user_addr,
+            ticket,
+        });
     }
 
     fun duration_end_at(duration: &Duration): u64 {
@@ -226,25 +251,31 @@ module pad_owner::offering_v2 {
 
         assert!(!exists<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr), error::unauthenticated(ENOT_REGISTERD));
         let user_status = borrow_global_mut<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr);
-
         let max_purchasable = user_status.ticket_amount * pool.cfg.expect_sale_amount / coin::value<OfferingCoin>(&pool.tickets);
         assert!(user_status.purchased_amount == max_purchasable, error::resource_exhausted(EREACHED_MAX_PARTICIPATION));
 
-        let purchasable = convert_amount_by_price_factor<RaiseCoinType, SaleCoinType>(payment, pool.cfg.ex_numerator, pool.cfg.ex_denominator) ;
+        let purchasable = calculate_amount_by_price_factor<RaiseCoinType, SaleCoinType>(payment, pool.cfg.ex_numerator, pool.cfg.ex_denominator) ;
         purchasable = if (purchasable + user_status.purchased_amount < max_purchasable) {
             purchasable
         }else {
             max_purchasable - user_status.purchased_amount
         };
 
-        payment = payment - convert_amount_by_price_factor<SaleCoinType, RaiseCoinType>(purchasable, pool.cfg.ex_denominator, pool.cfg.ex_numerator);
+        let actual_payment = payment - calculate_amount_by_price_factor<SaleCoinType, RaiseCoinType>(purchasable, pool.cfg.ex_denominator, pool.cfg.ex_numerator);
         user_status.purchased_amount = user_status.purchased_amount + purchasable;
-        coin::merge<RaiseCoinType>(&mut pool.raised, coin::withdraw<RaiseCoinType>(user, payment));
+
+        coin::merge<RaiseCoinType>(&mut pool.raised, coin::withdraw<RaiseCoinType>(user, actual_payment));
         coin::deposit<SaleCoinType>(user_addr, coin::extract<SaleCoinType>(&mut pool.to_sell, purchasable));
-        // todo: emit
+
+        emit_event<BuyEvent>(&mut user_status.buy_events, BuyEvent {
+            user: user_addr,
+            purchased: purchasable,
+            payment,
+            actual_payment,
+        });
     }
 
-    fun convert_amount_by_price_factor<SourceToken, TargeToken>(source_amount: u64, ex_numerator: u64, ex_denominator: u64): u64 {
+    fun calculate_amount_by_price_factor<SourceToken, TargeToken>(source_amount: u64, ex_numerator: u64, ex_denominator: u64): u64 {
         // source / src_decimals * target_decimals * numberator / denominator
         let ret = (source_amount * ex_numerator as u128)
                   * (power_decimals(coin::decimals<TargeToken>()) as u128)
@@ -253,20 +284,24 @@ module pad_owner::offering_v2 {
         (ret as u64)
     }
 
-
-    public entry fun claim_tickets<SaleCoinType, RaiseCoinType>(user: & signer) acquires Pool, UserStatus {
+    public entry fun claim_ticket<SaleCoinType, RaiseCoinType>(user: & signer) acquires Pool, UserStatus {
         let pool = borrow_global_mut<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER);
         assert!(timestamp::now_seconds() < duration_end_at(&pool.cfg.sale_duration), error::unavailable(EROUND_IS_NOT_READY));
 
         let user_addr = address_of(user);
         assert!(!exists<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr), error::unauthenticated(ENOT_REGISTERD));
 
+        let user_status = borrow_global_mut<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr);
+
         coin::deposit<OfferingCoin>(user_addr, coin::extract(
             &mut pool.tickets,
-            borrow_global<UserStatus<SaleCoinType, RaiseCoinType>>(user_addr).ticket_amount
-        ))
+            user_status.ticket_amount
+        ));
 
-        // todo: emit
+        emit_event<ClaimTicketEvent>(&mut user_status.claim_ticket_events, ClaimTicketEvent {
+            user: user_addr,
+            ticket: user_status.ticket_amount,
+        });
     }
 
     public entry fun withdraw_raise_funds<SaleCoinType, RaiseCoinType>(fundraiser: & signer) acquires Pool {
