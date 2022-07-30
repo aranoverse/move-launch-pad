@@ -1,6 +1,6 @@
 module launch_pad::offering_v2 {
     use std::error;
-    use std::signer::{Self, address_of};
+    use std::signer::{ address_of};
 
     use aptos_std::type_info;
     use aptos_std::event::{EventHandle, emit_event, new_event_handle};
