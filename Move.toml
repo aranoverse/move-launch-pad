@@ -1,10 +1,11 @@
 [package]
-name = "launch-pad"
-version = "0.0.0"
+name = "LaunchPad"
+version = "0.0.1"
+
+[addresses]
+launch_pad = "0x1"
+pad_owner = "0x2"
+offering_coin = "0x3"
 
 [dependencies]
 AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "main" }
-
-[addresses]
-
-
