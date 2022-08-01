@@ -76,12 +76,6 @@ module launch_pad::offering_v2 {
 
         // decimal is sale coin
         expect_sale_amount: u64,
-
-        // ticket amount ratio
-        // todo: maybe use this ratio to limit partition of user ,it seems to be not necessrary
-        max_participation_numerator: u64,
-        max_participation_denominator: u64,
-
     }
 
 
@@ -124,9 +118,7 @@ module launch_pad::offering_v2 {
         lock_duration: u64,
         ex_denominator: u64,
         ex_numerator: u64,
-        expect_sale_amount: u64,
-        max_participation_numerator: u64,
-        max_participation_denominator: u64,
+        expect_sale_amount: u64
     ) {
         assert!(type_info::type_of<SaleCoinType>() != type_info::type_of<RaiseCoinType>(), EWRONG_COIN_PAIR);
 
@@ -147,8 +139,6 @@ module launch_pad::offering_v2 {
 
         assert!(ex_numerator != 0, error::invalid_argument(ENUMERATOR_IS_ZERO));
         assert!(ex_denominator != 0, error::invalid_argument(EDENOMINATOR_IS_ZERO));
-        assert!(max_participation_numerator != 0, error::invalid_argument(ENUMERATOR_IS_ZERO));
-        assert!(max_participation_denominator != 0, error::invalid_argument(EDENOMINATOR_IS_ZERO));
 
         assert!(expect_sale_amount != 0, error::invalid_argument(EEXPECT_SALE_AMOUNT_IS_ZERO));
 
@@ -167,9 +157,7 @@ module launch_pad::offering_v2 {
                 lock_duration,
                 ex_numerator,
                 ex_denominator,
-                expect_sale_amount,
-                max_participation_numerator,
-                max_participation_denominator,
+                expect_sale_amount
             },
             tickets_amount: 0,
             to_sell: coin::zero<SaleCoinType>(),
