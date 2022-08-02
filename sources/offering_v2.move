@@ -7,7 +7,7 @@ module launch_pad::offering_v2 {
     use aptos_framework::timestamp;
     use aptos_framework::coin::{Self};
 
-    use launch_pad::math::power_decimals;
+    use launch_pad::math::{calculate_amount_by_price_factor};
 
     const PAD_OWNER: address = @launch_pad;
 
@@ -78,7 +78,6 @@ module launch_pad::offering_v2 {
         expect_sale_amount: u64,
     }
 
-
     struct Pool<phantom SaleCoinType, phantom RaiseCoinType> has key {
         cfg: Config<SaleCoinType, RaiseCoinType>,
         tickets_amount: u64,
@@ -124,10 +123,9 @@ module launch_pad::offering_v2 {
 
         let manager_addr = address_of(manager);
         assert!(!exists<Pool<SaleCoinType, RaiseCoinType>>(manager_addr), error::unavailable(ECONFIGURED));
+
         assert!(manager_addr == PAD_OWNER, error::permission_denied(ENOT_MODULE_OWNER));
-
         assert!(fundraiser != @0x0, error::invalid_argument(EFUNDRAISER_IS_ZERO));
-
 
         assert!(timestamp::now_seconds() <= start_registraion_at, error::invalid_argument(EWRONG_TIME_ARGS));
         assert!(registraion_duration > 0, error::invalid_state(EWRONG_TIME_ARGS));
@@ -141,7 +139,6 @@ module launch_pad::offering_v2 {
         assert!(ex_denominator != 0, error::invalid_argument(EDENOMINATOR_IS_ZERO));
 
         assert!(expect_sale_amount != 0, error::invalid_argument(EEXPECT_SALE_AMOUNT_IS_ZERO));
-
 
         let pool = Pool<SaleCoinType, RaiseCoinType> {
             cfg: Config<SaleCoinType, RaiseCoinType> {
@@ -174,8 +171,7 @@ module launch_pad::offering_v2 {
         move_to(manager, pool);
     }
 
-    public entry fun deposit_to_sell<SaleCoinType, RaiseCoinType>(fundraiser: &signer, amount_to_sell: u64)
-    acquires Pool {
+    public entry fun deposit_to_sell<SaleCoinType, RaiseCoinType>(fundraiser: &signer, amount_to_sell: u64) acquires Pool {
         assert!(exists<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER), error::unavailable(ENOT_CONFIGURED));
 
         let pool = borrow_global_mut<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER);
@@ -198,8 +194,7 @@ module launch_pad::offering_v2 {
         };
     }
 
-    public entry fun register<SaleCoinType, RaiseCoinType>(user: &signer, ticket: u64)
-    acquires Pool, UserStatus {
+    public entry fun register<SaleCoinType, RaiseCoinType>(user: &signer, ticket: u64) acquires Pool, UserStatus {
         assert!(ticket != 0, error::invalid_argument(EAMOUNT_IS_ZERO));
 
         let pool = borrow_global_mut<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER);
@@ -275,14 +270,6 @@ module launch_pad::offering_v2 {
             });
     }
 
-    fun calculate_amount_by_price_factor<SourceToken, TargeToken>(source_amount: u64, ex_numerator: u64, ex_denominator: u64): u64 {
-        // source / src_decimals * target_decimals * numberator / denominator
-        let ret = (source_amount * ex_numerator as u128)
-                  * (power_decimals(coin::decimals<TargeToken>()) as u128)
-                  / (power_decimals(coin::decimals<SourceToken>()) as u128)
-                  / (ex_denominator as u128);
-        (ret as u64)
-    }
 
     public entry fun claim_ticket<SaleCoinType, RaiseCoinType>(user: & signer) acquires Pool, UserStatus {
         let pool = borrow_global_mut<Pool<SaleCoinType, RaiseCoinType>>(PAD_OWNER);
@@ -331,7 +318,6 @@ module launch_pad::offering_v2 {
         );
     }
 
-
     // 1. manger set config
     // 2. fundraiser deposit
     // 3. user pay offering-coin to register
@@ -346,7 +332,6 @@ module launch_pad::offering_v2 {
 
     #[test_only]
     struct RaiseCoin {}
-
 
     #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
     #[expected_failure(abort_code = 65547)]
