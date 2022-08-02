@@ -116,11 +116,11 @@ module launch_pad::offering_v2 {
         start_sale_at: u64,
         sale_duration: u64,
         lock_duration: u64,
-        ex_denominator: u64,
         ex_numerator: u64,
+        ex_denominator: u64,
         expect_sale_amount: u64
     ) {
-        assert!(type_info::type_of<SaleCoinType>() != type_info::type_of<RaiseCoinType>(), EWRONG_COIN_PAIR);
+        assert!(type_info::type_of<SaleCoinType>() != type_info::type_of<RaiseCoinType>(), error::invalid_argument(EWRONG_COIN_PAIR));
 
         let manager_addr = address_of(manager);
         assert!(!exists<Pool<SaleCoinType, RaiseCoinType>>(manager_addr), error::unavailable(ECONFIGURED));
@@ -340,4 +340,109 @@ module launch_pad::offering_v2 {
     // 6. user wait to release offering-coin
     // todo: 7. deduct part of ticket amount , send nft
     // 8. condering of moving from the user_status storage when user withdraw
+
+    #[test_only]
+    struct SaleCoin {}
+
+    #[test_only]
+    struct RaiseCoin {}
+
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 65547)]
+    fun test_initialize_pool_same_coin(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, SaleCoin>(manager, @0x1, now + 60, 600, now + 120, 600, 600, 2, 3, 100);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 65538)]
+    fun test_wrong_start_registraion_at(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        timestamp::update_global_time_for_test(10009999 * 100);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now - 10, 600, now + 120, 600, 600, 2, 3, 100);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 196610)]
+    fun test_wrong_zero_registration_duraion(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 0, now + 120, 0, 600, 2, 3, 100);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 196610)]
+    fun test_wrong_start_sale_at(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now, 100, 600, 2, 3, 100);
+    }
+
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 196610)]
+    fun test_wrong_zero_sale_duraion(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now + 720, 0, 600, 2, 3, 100);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 196610)]
+    fun test_wrong_zero_lock_duraion(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now + 820, 100, 0, 2, 3, 100);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 65551)]
+    fun test_wrong_zero_ex_numerator(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now + 720, 1, 100, 0, 3, 100);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 65539)]
+    fun test_wrong_zero_ex_denominator(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now + 720, 100, 100, 1, 0, 100);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    fun expect_initialized_pool_status(aptos_framework: &signer, manager: &signer) acquires Pool {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now + 820, 500, 100, 20, 10, 100);
+        assert!(exists<Pool<SaleCoin, RaiseCoin>>(address_of(manager)), 1);
+
+        let pool = borrow_global<Pool<SaleCoin, RaiseCoin>>(address_of(manager));
+        assert!(pool.cfg.fundraiser == @0x1, 2);
+        assert!(pool.cfg.lock_duration == 100, 3);
+        assert!(pool.cfg.registraion_duration.start_at == now, 4);
+        assert!(pool.cfg.registraion_duration.duration == 600, 5);
+        assert!(pool.cfg.registraion_duration.start_at == now, 6);
+        assert!(pool.cfg.sale_duration.start_at == now + 820, 7);
+        assert!(pool.cfg.sale_duration.duration == 500, 8);
+        assert!(pool.cfg.expect_sale_amount == 100, 9);
+        assert!(pool.cfg.ex_numerator == 20, 10);
+        assert!(pool.cfg.ex_denominator == 10, 11);
+        assert!(pool.tickets_amount == 0, 12);
+        assert!(coin::value(&pool.to_sell) == 0, 13);
+        assert!(coin::value(&pool.raised) == 0, 14);
+    }
+
+    #[test(aptos_framework = @aptos_framework, manager = @launch_pad)]
+    #[expected_failure(abort_code = 851969)]
+    fun test_repeat_initialize_pool(aptos_framework: &signer, manager: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        let now = timestamp::now_seconds();
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now + 820, 1, 100, 20, 10, 100);
+        initialize_pool<SaleCoin, RaiseCoin>(manager, @0x1, now, 600, now + 820, 1, 100, 20, 10, 100);
+    }
 }

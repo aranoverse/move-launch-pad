@@ -3,7 +3,11 @@ name = "LaunchPad"
 version = "0.0.1"
 
 [addresses]
-launch_pad = "0x1"
+launch_pad = "0xCAFE"
+fundraiser = "_"
 
 [dependencies]
-AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "main" }
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "916896947c629fe02588d5c5977bff2fecf587ac" }
+
+[dev-addresses]
+fundraiser = "0x830d03109960cc54f63a00daab9044b802a7f9676295f5a320bfbb00b7945a3a"
